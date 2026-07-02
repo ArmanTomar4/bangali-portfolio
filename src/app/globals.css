@@ -1,26 +1,57 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #04040d;
+  --ink: #e8e6ff;
+  --purple: #7f77dd;
+  --teal: #1d9e75;
+  --pink: #d4537e;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg: var(--bg);
+  --color-ink: var(--ink);
+  --font-sans: var(--font-space-grotesk);
+  --font-mono: var(--font-space-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+html,
+body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-space-grotesk), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+/* prevent text selection on the canvas world by default */
+canvas {
+  display: block;
+  touch-action: none;
+}
+
+/* the slide panel uses will-change for jank-free animation */
+.panel-will-change {
+  will-change: transform, opacity;
+}
+
+/* hide scrollbars inside the panel body */
+.panel-scroll::-webkit-scrollbar {
+  width: 0;
+  background: transparent;
+}
+
+@keyframes hint-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+.hint-bounce {
+  animation: hint-bounce 1.6s ease-in-out infinite;
 }
