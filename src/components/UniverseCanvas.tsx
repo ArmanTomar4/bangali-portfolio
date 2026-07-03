@@ -8,10 +8,6 @@ import { gsap } from "gsap";
 import ConstellationSystem from "./ConstellationSystem";
 import { SECTIONS, TOTAL_TRAVEL, type HoverInfo } from "@/data/constellations";
 
-interface TravelState {
-  streak: number;
-}
-
 interface CanvasProps {
   section: number;
   progressRef: React.MutableRefObject<number>;
@@ -99,14 +95,22 @@ function getStarTexture(): THREE.Texture {
   return starTexture;
 }
 
-/** 300 foreground stars in 3 size classes + hyperspace streak lines. */
-function ForegroundStars({ travel }: { travel: React.MutableRefObject<TravelState> }) {
+/**
+ * 300 foreground stars in 3 size classes + hyperspace streak lines.
+ * Streak intensity is derived from the camera's actual Z velocity, so the
+ * effect tracks the real travel (any direction, any duration) instead of
+ * running on a fixed timer.
+ */
+function ForegroundStars() {
   const { camera } = useThree();
   const groupRef = useRef<THREE.Group>(null);
   const linesRef = useRef<THREE.LineSegments>(null);
   const lineMatRef = useRef<THREE.LineBasicMaterial>(null);
   const rotY = useRef(0);
   const prevStreak = useRef(0);
+  const prevZ = useRef<number | null>(null);
+  const streak = useRef(0);
+  const dirSign = useRef(-1);
 
   const data = useMemo(() => {
     const rand = mulberry32(1337);
@@ -149,32 +153,42 @@ function ForegroundStars({ travel }: { travel: React.MutableRefObject<TravelStat
 
   const dpr = typeof window !== "undefined" ? Math.min(window.devicePixelRatio, 2) : 1;
 
-  useFrame((_, dt) => {
+  useFrame((_, dtRaw) => {
     const g = groupRef.current;
     if (!g) return;
-    rotY.current += Math.min(dt, 0.05) * 0.048; // ≈ 0.0008 rad/frame @60fps
+    const dt = Math.min(Math.max(dtRaw, 1e-4), 0.05);
+    rotY.current += dt * 0.048; // ≈ 0.0008 rad/frame @60fps
     g.rotation.y = rotY.current;
     g.position.z = camera.position.z * 0.95;
 
-    const streak = travel.current.streak;
+    // camera Z velocity → streak intensity (full streak ≈ one-section snap speed)
+    const z = camera.position.z;
+    const dz = prevZ.current == null ? 0 : z - prevZ.current;
+    prevZ.current = z;
+    if (Math.abs(dz) > 1e-3) dirSign.current = dz < 0 ? -1 : 1;
+    const target = Math.min(1, Math.abs(dz) / dt / 240);
+    streak.current += (target - streak.current) * Math.min(1, dt * 9);
+    const s = streak.current;
+
     const lines = linesRef.current;
     if (!lines) return;
-    if (streak > 0.001 || prevStreak.current > 0.001) {
-      // streak direction = world -Z expressed in the group's rotated local space
+    if (s > 0.004 || prevStreak.current > 0.004) {
+      // streak tail points toward where the star came from, expressed in the
+      // group's rotated local space
       const ry = rotY.current;
-      const dx = -Math.sin(ry);
-      const dz = -Math.cos(ry);
-      const len = streak * 22;
+      const dx = -Math.sin(ry) * dirSign.current;
+      const dz2 = Math.cos(ry) * dirSign.current;
+      const len = s * 22;
       const attr = lines.geometry.getAttribute("position") as THREE.BufferAttribute;
       const arr = attr.array as Float32Array;
       for (let i = 0; i < 300; i++) {
         arr[i * 6 + 3] = data.all[i * 3] + dx * len;
-        arr[i * 6 + 5] = data.all[i * 3 + 2] + dz * len;
+        arr[i * 6 + 5] = data.all[i * 3 + 2] + dz2 * len;
       }
       attr.needsUpdate = true;
-      lines.visible = streak > 0.001;
-      if (lineMatRef.current) lineMatRef.current.opacity = Math.min(1, streak) * 0.85;
-      prevStreak.current = streak;
+      lines.visible = s > 0.004;
+      if (lineMatRef.current) lineMatRef.current.opacity = Math.min(1, s) * 0.85;
+      prevStreak.current = s;
     }
   });
 
@@ -238,13 +252,7 @@ function mulberry32(seed: number) {
   };
 }
 
-function StarField({
-  travel,
-  isMobile,
-}: {
-  travel: React.MutableRefObject<TravelState>;
-  isMobile: boolean;
-}) {
+function StarField({ isMobile }: { isMobile: boolean }) {
   const bgRef = useRef<THREE.Group>(null);
   const { camera } = useThree();
   useFrame(() => {
@@ -264,7 +272,7 @@ function StarField({
           speed={0.15}
         />
       </group>
-      <ForegroundStars travel={travel} />
+      <ForegroundStars />
     </>
   );
 }
@@ -304,25 +312,6 @@ export default function UniverseCanvas({
   isMobile,
   reduced,
 }: CanvasProps) {
-  const travel = useRef<TravelState>({ streak: 0 });
-  const mounted = useRef(false);
-
-  // Phase 2 — hyperspace streaks while the camera travels between sections
-  useEffect(() => {
-    if (!mounted.current) {
-      mounted.current = true;
-      return;
-    }
-    if (reduced) return;
-    const tl = gsap.timeline({ delay: 0.45 });
-    tl.to(travel.current, { streak: 1, duration: 0.4, ease: "power2.in" });
-    tl.to(travel.current, { streak: 0, duration: 0.45, ease: "power2.out" });
-    return () => {
-      tl.kill();
-      travel.current.streak = 0; // eslint-disable-line react-hooks/exhaustive-deps
-    };
-  }, [section, reduced]);
-
   return (
     <Canvas
       camera={{ position: [0, 0, 0], fov: 75, near: 0.1, far: 2000 }}
@@ -335,9 +324,10 @@ export default function UniverseCanvas({
       <Suspense fallback={null}>
         <NebulaBg />
       </Suspense>
-      <StarField travel={travel} isMobile={isMobile} />
+      <StarField isMobile={isMobile} />
       <ConstellationSystem
         section={section}
+        progressRef={progressRef}
         isMobile={isMobile}
         reduced={reduced}
         onHover={onHover}

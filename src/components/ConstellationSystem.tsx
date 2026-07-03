@@ -8,6 +8,9 @@ import {
   useRef,
 } from "react";
 import * as THREE from "three";
+import { Line2 } from "three/examples/jsm/lines/Line2.js";
+import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { useThree, type ThreeEvent } from "@react-three/fiber";
 import { gsap } from "gsap";
 import {
@@ -20,25 +23,7 @@ import {
 const FOV = 75;
 const NODE_DIST = 100; // constellation plane sits 100 units beyond the section camera stop
 
-const EDGE_VERT = /* glsl */ `
-  attribute float aT;
-  varying float vT;
-  void main() {
-    vT = aT;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
-
-const EDGE_FRAG = /* glsl */ `
-  uniform vec3 uColor;
-  uniform float uOpacity;
-  uniform float uProgress;
-  varying float vT;
-  void main() {
-    if (vT > uProgress) discard;
-    gl_FragColor = vec4(uColor, uOpacity);
-  }
-`;
+const EDGE_BASE_OPACITY = 0.5;
 
 let glowTexture: THREE.Texture | null = null;
 function getGlowTexture(): THREE.Texture {
@@ -96,7 +81,7 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
     const section = SECTIONS[sectionIndex];
     const constellation = section.constellation!;
     const palette = section.palette;
-    const { size, camera } = useThree();
+    const { size, camera, gl } = useThree();
 
     const rootRef = useRef<THREE.Group>(null);
     const nodeGroups = useRef<(THREE.Group | null)[]>([]);
@@ -110,13 +95,17 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
       [constellation, isMobile]
     );
 
-    // screen-space layout → world coordinates on the section's node plane
+    // screen-space layout → world coordinates on the section's node plane.
+    // On mobile the constellation is centred in the upper third (text moves
+    // to the bottom) and the spread is compressed to fit narrow screens.
     const positions = useMemo(() => {
       const vh = 2 * Math.tan(((FOV / 2) * Math.PI) / 180) * NODE_DIST;
       const vw = vh * (size.width / size.height);
-      const offScale = vw / size.width; // design px → world units
-      const cxW = (constellation.cx - 0.5) * vw;
-      const cyW = (0.5 - constellation.cy) * vh;
+      const offScale = (vw / size.width) * (isMobile ? 0.75 : 1);
+      const cx = isMobile ? 0.5 : constellation.cx;
+      const cy = isMobile ? 0.3 : constellation.cy;
+      const cxW = (cx - 0.5) * vw;
+      const cyW = (0.5 - cy) * vh;
       const z = section.cameraZ - NODE_DIST;
       return nodes.map(
         (n) =>
@@ -126,7 +115,7 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
             number
           ]
       );
-    }, [nodes, constellation, section.cameraZ, size.width, size.height]);
+    }, [nodes, constellation, section.cameraZ, size.width, size.height, isMobile]);
 
     const baseColor = useMemo(() => new THREE.Color(palette.nodeColor), [palette.nodeColor]);
     const hoverColor = useMemo(
@@ -134,32 +123,35 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
       [baseColor]
     );
 
-    // edge lines: 2-vertex geometry + draw-progress shader per edge
+    // edge lines: screen-space fat lines whose dash offset animates the
+    // draw-in from node A toward node B
     const lines = useMemo(() => {
       return edges.map(([a, b]) => {
-        const g = new THREE.BufferGeometry();
-        const pa = positions[a];
-        const pb = positions[b];
-        g.setAttribute(
-          "position",
-          new THREE.Float32BufferAttribute([...pa, ...pb], 3)
+        const g = new LineGeometry();
+        g.setPositions([...positions[a], ...positions[b]]);
+        const len = new THREE.Vector3(...positions[a]).distanceTo(
+          new THREE.Vector3(...positions[b])
         );
-        g.setAttribute("aT", new THREE.Float32BufferAttribute([0, 1], 1));
-        const m = new THREE.ShaderMaterial({
-          uniforms: {
-            uColor: { value: new THREE.Color(palette.edgeColor) },
-            uOpacity: { value: shownRef.current ? 0.3 : 0 },
-            uProgress: { value: shownRef.current ? 1 : 0 },
-          },
-          vertexShader: EDGE_VERT,
-          fragmentShader: EDGE_FRAG,
+        const m = new LineMaterial({
+          color: new THREE.Color(palette.edgeColor).getHex(),
+          linewidth: 1.6,
           transparent: true,
+          opacity: shownRef.current ? EDGE_BASE_OPACITY : 0,
+          dashed: true,
+          dashSize: len,
+          gapSize: len,
           depthWrite: false,
         });
-        return new THREE.Line(g, m);
+        m.blending = THREE.AdditiveBlending;
+        m.dashOffset = shownRef.current ? 0 : len;
+        m.resolution.set(gl.domElement.width, gl.domElement.height);
+        const line = new Line2(g, m);
+        line.computeLineDistances();
+        line.userData.len = len;
+        return line;
       });
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [edges, positions, palette.edgeColor]);
+    }, [edges, positions, palette.edgeColor, gl]);
 
     useEffect(() => {
       return () => {
@@ -170,7 +162,7 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
       };
     }, [lines]);
 
-    const edgeMat = (j: number) => lines[j].material as THREE.ShaderMaterial;
+    const edgeMat = (j: number) => lines[j].material as LineMaterial;
 
     const setAll = (visible: boolean, scale: number, opacity: number) => {
       if (rootRef.current) rootRef.current.visible = visible;
@@ -178,9 +170,9 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
       nodeMats.current.forEach((m) => m && (m.opacity = opacity));
       glowMats.current.forEach((m) => m && (m.opacity = opacity * 0.35));
       lines.forEach((l) => {
-        const m = l.material as THREE.ShaderMaterial;
-        m.uniforms.uProgress.value = visible ? 1 : 0;
-        m.uniforms.uOpacity.value = visible ? 0.3 : 0;
+        const m = l.material as LineMaterial;
+        m.dashOffset = visible ? 0 : (l.userData.len as number);
+        m.opacity = visible ? EDGE_BASE_OPACITY : 0;
       });
     };
 
@@ -194,9 +186,9 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
           nodeMats.current.forEach((m) => m && (m.opacity = 0));
           glowMats.current.forEach((m) => m && (m.opacity = 0));
           lines.forEach((l) => {
-            const m = l.material as THREE.ShaderMaterial;
-            m.uniforms.uProgress.value = 0;
-            m.uniforms.uOpacity.value = 0.3;
+            const m = l.material as LineMaterial;
+            m.dashOffset = l.userData.len as number;
+            m.opacity = EDGE_BASE_OPACITY;
           });
         },
         arrive(tl, at) {
@@ -224,9 +216,14 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
           );
           lines.forEach((l, j) => {
             tl.fromTo(
-              edgeMat(j).uniforms.uProgress,
-              { value: 0 },
-              { value: 1, duration: 0.4, ease: "power2.out", overwrite: "auto" },
+              edgeMat(j),
+              { dashOffset: l.userData.len as number },
+              {
+                dashOffset: 0,
+                duration: 0.4,
+                ease: "power2.out",
+                overwrite: "auto",
+              },
               at + 0.4 + j * 0.06
             );
           });
@@ -251,10 +248,10 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
             { opacity: 0, duration: 0.4, overwrite: "auto" },
             at
           );
-          lines.forEach((l, j) => {
+          lines.forEach((_, j) => {
             tl.to(
-              edgeMat(j).uniforms.uOpacity,
-              { value: 0, duration: 0.4, overwrite: "auto" },
+              edgeMat(j),
+              { opacity: 0, duration: 0.4, overwrite: "auto" },
               at
             );
           });
@@ -306,8 +303,8 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
       if (glow) gsap.to(glow, { opacity: 0.7, duration: 0.3, overwrite: "auto" });
       const conn = connectedEdges(i);
       lines.forEach((_, j) => {
-        gsap.to(edgeMat(j).uniforms.uOpacity, {
-          value: conn.includes(j) ? 0.7 : 0.12,
+        gsap.to(edgeMat(j), {
+          opacity: conn.includes(j) ? 0.9 : 0.12,
           duration: 0.3,
           overwrite: "auto",
         });
@@ -328,7 +325,7 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
       if (mat)
         gsap.to(mat.color, { r: baseColor.r, g: baseColor.g, b: baseColor.b, duration: 0.2, overwrite: "auto" });
       lines.forEach((_, j) => {
-        gsap.to(edgeMat(j).uniforms.uOpacity, { value: 0.3, duration: 0.2, overwrite: "auto" });
+        gsap.to(edgeMat(j), { opacity: EDGE_BASE_OPACITY, duration: 0.2, overwrite: "auto" });
       });
       nodes.forEach((_, k) => {
         const m = nodeMats.current[k];
@@ -433,56 +430,95 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
 
 interface SystemProps {
   section: number;
+  progressRef: React.MutableRefObject<number>;
   isMobile: boolean;
   reduced: boolean;
   onHover: (h: HoverInfo | null) => void;
 }
 
+/**
+ * Transition orchestration is driven by the *actual* camera progress, not a
+ * fixed timer: the old constellation departs as soon as the camera pulls away
+ * from its section stop, and the new one materialises only once the camera is
+ * close to its stop AND has decelerated — so arrival always lands on a settled
+ * camera, in either scroll direction, even across multi-section jumps.
+ */
 export default function ConstellationSystem({
   section,
+  progressRef,
   isMobile,
   reduced,
   onHover,
 }: SystemProps) {
   const apis = useRef<(GroupApi | null)[]>([]);
-  const displayed = useRef(0);
-  const tlRef = useRef<gsap.core.Timeline | null>(null);
-  const mounted = useRef(false);
+  const displayed = useRef<number | null>(null);
+  const sectionRef = useRef(section);
+  sectionRef.current = section;
+  const departTl = useRef<gsap.core.Timeline | null>(null);
+  const arriveTl = useRef<gsap.core.Timeline | null>(null);
+
+  // reduced motion: hard swap on section change, no ticker
+  useEffect(() => {
+    if (!reduced) return;
+    const prev = displayed.current;
+    if (prev === section) return;
+    if (prev != null) apis.current[prev]?.hideInstant();
+    apis.current[section]?.showInstant();
+    displayed.current = SECTIONS[section].constellation ? section : null;
+    onHover(null);
+  }, [section, reduced, onHover]);
 
   useEffect(() => {
-    const prev = displayed.current;
-    if (!mounted.current) {
-      mounted.current = true;
-      // arriving on a reload mid-page: show current section directly
-      if (section !== 0) apis.current[section]?.showInstant();
-      displayed.current = section;
-      return;
-    }
-    if (prev === section) return;
-    displayed.current = section;
-    tlRef.current?.kill();
-    onHover(null);
-    document.body.style.cursor = "";
+    if (reduced) return;
+    let prevP = progressRef.current;
+    let vel = 0;
 
-    const prevApi = apis.current[prev];
-    const nextApi = apis.current[section];
+    const tick = (_time: number, deltaMS: number) => {
+      const dt = Math.min(Math.max(deltaMS, 1), 100) / 1000;
+      const p = progressRef.current;
+      vel += ((p - prevP) / dt - vel) * Math.min(1, dt * 12);
+      prevP = p;
 
-    if (reduced) {
-      prevApi?.hideInstant();
-      nextApi?.showInstant();
-      return;
-    }
+      // Phase 1 — departure: camera has left the displayed section's stop
+      const d = displayed.current;
+      if (d != null && Math.abs(p - d / 4) > 0.05) {
+        displayed.current = null;
+        onHover(null);
+        document.body.style.cursor = "";
+        arriveTl.current?.kill();
+        departTl.current?.kill();
+        const tl = gsap.timeline();
+        departTl.current = tl;
+        apis.current[d]?.depart(tl, 0);
+      }
 
-    const tl = gsap.timeline();
-    tlRef.current = tl;
-    // Phase 1 — departure of the old constellation
-    if (prevApi) prevApi.depart(tl, 0);
-    // Phase 3 — arrival after the camera has settled (travel ≈ 0.6–1.2s)
-    if (nextApi) {
-      tl.call(() => nextApi.prep(), [], prevApi ? 1.35 : 0.9);
-      nextApi.arrive(tl, prevApi ? 1.4 : 0.95);
-    }
-  }, [section, reduced, onHover]);
+      // Phase 3 — arrival: camera near the current section's stop and slowing
+      const s = sectionRef.current;
+      if (
+        displayed.current == null &&
+        SECTIONS[s].constellation &&
+        Math.abs(p - s / 4) < 0.03 &&
+        Math.abs(vel) < 0.055
+      ) {
+        displayed.current = s;
+        arriveTl.current?.kill();
+        const api = apis.current[s];
+        if (api) {
+          api.prep();
+          const tl = gsap.timeline();
+          arriveTl.current = tl;
+          api.arrive(tl, 0.12);
+        }
+      }
+    };
+
+    gsap.ticker.add(tick);
+    return () => {
+      gsap.ticker.remove(tick);
+      departTl.current?.kill();
+      arriveTl.current?.kill();
+    };
+  }, [reduced, onHover, progressRef]);
 
   return (
     <>

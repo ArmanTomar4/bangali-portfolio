@@ -18,8 +18,17 @@ export default function SectionText({ section, isMobile, reduced }: Props) {
   const dur = (v: number) => (reduced ? 0 : v);
 
   const side = data.side ?? "center";
-  const wrapperStyle: React.CSSProperties =
-    side === "left"
+  const wrapperStyle: React.CSSProperties = isMobile
+    ? {
+        // mobile: constellation occupies the upper third, text sits low
+        position: "absolute",
+        left: "24px",
+        right: "24px",
+        bottom: "14%",
+        textAlign:
+          side === "left" ? "right" : side === "right" ? "left" : "center",
+      }
+    : side === "left"
       ? {
           position: "absolute",
           right: "8%",

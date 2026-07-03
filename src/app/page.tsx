@@ -50,9 +50,15 @@ function Experience() {
       setHintVisible(false);
     }
     const idx = progressToSection(p);
-    if (idx !== sectionRef.current) {
-      sectionRef.current = idx;
-      setSection(idx);
+    const cur = sectionRef.current;
+    if (idx !== cur) {
+      // hysteresis: commit only once the boundary is crossed by a margin,
+      // so slow scrolling near a boundary can't flip sections back and forth
+      const boundary = idx > cur ? cur / 4 + 0.125 : cur / 4 - 0.125;
+      if (Math.abs(p - boundary) > 0.012) {
+        sectionRef.current = idx;
+        setSection(idx);
+      }
     }
   }, []);
 

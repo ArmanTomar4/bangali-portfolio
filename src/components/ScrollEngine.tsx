@@ -25,7 +25,7 @@ export default function ScrollEngine({ reduced, onProgress, registerGoTo }: Prop
 
     if (!reduced) {
       lenis = new Lenis({
-        duration: 1.4,
+        duration: 1.1,
         easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
         orientation: "vertical",
         smoothWheel: true,
@@ -42,13 +42,13 @@ export default function ScrollEngine({ reduced, onProgress, registerGoTo }: Prop
       trigger: "#scroll-container",
       start: "top top",
       end: "bottom bottom",
-      scrub: reduced ? true : 1.4,
+      scrub: reduced ? true : 1.1,
       snap: reduced
         ? undefined
         : {
             snapTo: [0, 0.25, 0.5, 0.75, 1.0],
-            duration: { min: 0.9, max: 1.5 },
-            delay: 0.08,
+            duration: { min: 0.7, max: 1.1 },
+            delay: 0.06,
             ease: "power3.inOut",
           },
       onUpdate: (self) => progressCb.current(self.progress),
@@ -68,15 +68,12 @@ export default function ScrollEngine({ reduced, onProgress, registerGoTo }: Prop
       }
     });
 
-    const onVisibility = () => {
-      if (!lenis) return;
-      if (document.hidden) lenis.stop();
-      else lenis.start();
-    };
-    document.addEventListener("visibilitychange", onVisibility);
+    // Note: no explicit visibilitychange pause — the browser suspends rAF in
+    // hidden tabs, which stops the gsap ticker (and with it lenis) already.
+    // An explicit lenis.stop() here can wedge scrolling if the tab is hidden
+    // during load and the matching start() never fires.
 
     return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
       st.kill();
       if (raf) gsap.ticker.remove(raf);
       lenis?.destroy();
