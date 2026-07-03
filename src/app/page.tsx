@@ -33,20 +33,19 @@ function Experience() {
   const [hover, setHover] = useState<HoverInfo | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [reduced, setReduced] = useState(false);
-  const [ready, setReady] = useState(false);
   const [hintVisible, setHintVisible] = useState(false);
   const hintDismissed = useRef(true);
   const goToFn = useRef<(i: number) => void>(() => {});
-  const mobileProgress = useRef({ v: 0 });
   const vignetteRef = useRef<HTMLDivElement>(null);
-  const touchStartY = useRef<number | null>(null);
   const firstSection = useRef(true);
 
   const onProgress = useCallback((p: number) => {
     progressRef.current = p;
     if (!hintDismissed.current && p > 0.02) {
       hintDismissed.current = true;
-      sessionStorage.setItem(HINT_KEY, "1");
+      try {
+        sessionStorage.setItem(HINT_KEY, "1");
+      } catch {}
       setHintVisible(false);
     }
     const idx = progressToSection(p);
@@ -81,7 +80,10 @@ function Experience() {
     mq.addEventListener("change", syncMobile);
     rmq.addEventListener("change", syncReduced);
 
-    const dismissed = sessionStorage.getItem(HINT_KEY) === "1";
+    let dismissed = false;
+    try {
+      dismissed = sessionStorage.getItem(HINT_KEY) === "1";
+    } catch {}
     hintDismissed.current = dismissed;
     setHintVisible(!dismissed);
 
@@ -98,7 +100,6 @@ function Experience() {
     };
     window.addEventListener("deviceorientation", onOrient);
 
-    setReady(true);
     return () => {
       mq.removeEventListener("change", syncMobile);
       rmq.removeEventListener("change", syncReduced);
@@ -106,20 +107,6 @@ function Experience() {
       window.removeEventListener("deviceorientation", onOrient);
     };
   }, []);
-
-  // mobile: manual section travel (tweened progress) instead of ScrollTrigger
-  useEffect(() => {
-    if (!isMobile) return;
-    registerGoTo((i: number) => {
-      gsap.to(mobileProgress.current, {
-        v: i / 4,
-        duration: reduced ? 0 : 1.6,
-        ease: "power2.inOut",
-        overwrite: "auto",
-        onUpdate: () => onProgress(mobileProgress.current.v),
-      });
-    });
-  }, [isMobile, reduced, registerGoTo, onProgress]);
 
   // travel vignette + clear any hover when leaving a section
   useEffect(() => {
@@ -137,34 +124,12 @@ function Experience() {
     };
   }, [section, reduced]);
 
-  const onTouchStart = (e: React.TouchEvent) => {
-    if (!isMobile) return;
-    touchStartY.current = e.touches[0].clientY;
-  };
-  const onTouchEnd = (e: React.TouchEvent) => {
-    if (!isMobile || touchStartY.current == null) return;
-    const delta = touchStartY.current - e.changedTouches[0].clientY;
-    touchStartY.current = null;
-    if (Math.abs(delta) > 50) {
-      if (!hintDismissed.current) {
-        hintDismissed.current = true;
-        sessionStorage.setItem(HINT_KEY, "1");
-        setHintVisible(false);
-      }
-      goTo(sectionRef.current + (delta > 0 ? 1 : -1));
-    }
-  };
-
   return (
     <div
       id="scroll-container"
-      style={{ height: isMobile ? "100svh" : "600vh" }}
+      style={{ height: "100svh", overflow: "hidden" }}
     >
-      <div
-        style={{ position: "fixed", inset: 0, zIndex: 0 }}
-        onTouchStart={onTouchStart}
-        onTouchEnd={onTouchEnd}
-      >
+      <div style={{ position: "fixed", inset: 0, zIndex: 0 }}>
         <UniverseCanvas
           section={section}
           progressRef={progressRef}
@@ -210,13 +175,11 @@ function Experience() {
       </div>
       <ProgressDots section={section} goTo={goTo} isMobile={isMobile} />
 
-      {ready && !isMobile && (
-        <ScrollEngine
-          reduced={reduced}
-          onProgress={onProgress}
-          registerGoTo={registerGoTo}
-        />
-      )}
+      <ScrollEngine
+        reduced={reduced}
+        onProgress={onProgress}
+        registerGoTo={registerGoTo}
+      />
     </div>
   );
 }

@@ -25,7 +25,9 @@ body {
 }
 
 body {
-  overflow-x: hidden;
+  /* discrete section paging — the page itself never scrolls */
+  overflow: hidden;
+  height: 100svh;
 }
 
 canvas {

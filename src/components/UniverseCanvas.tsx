@@ -166,7 +166,7 @@ function ForegroundStars() {
     const dz = prevZ.current == null ? 0 : z - prevZ.current;
     prevZ.current = z;
     if (Math.abs(dz) > 1e-3) dirSign.current = dz < 0 ? -1 : 1;
-    const target = Math.min(1, Math.abs(dz) / dt / 240);
+    const target = Math.min(1, Math.abs(dz) / dt / 300);
     streak.current += (target - streak.current) * Math.min(1, dt * 9);
     const s = streak.current;
 
@@ -178,7 +178,7 @@ function ForegroundStars() {
       const ry = rotY.current;
       const dx = -Math.sin(ry) * dirSign.current;
       const dz2 = Math.cos(ry) * dirSign.current;
-      const len = s * 22;
+      const len = s * 18;
       const attr = lines.geometry.getAttribute("position") as THREE.BufferAttribute;
       const arr = attr.array as Float32Array;
       for (let i = 0; i < 300; i++) {
@@ -187,7 +187,7 @@ function ForegroundStars() {
       }
       attr.needsUpdate = true;
       lines.visible = s > 0.004;
-      if (lineMatRef.current) lineMatRef.current.opacity = Math.min(1, s) * 0.85;
+      if (lineMatRef.current) lineMatRef.current.opacity = Math.min(1, s) * 0.7;
       prevStreak.current = s;
     }
   });
@@ -291,9 +291,10 @@ function CameraRig({
   const { camera } = useThree();
   useFrame((_, dt) => {
     const targetZ = progressRef.current * TOTAL_TRAVEL;
+    // the paging tween is already eased — track it tightly, no extra mush
     camera.position.z = reduced
       ? targetZ
-      : THREE.MathUtils.damp(camera.position.z, targetZ, 8, Math.min(dt, 0.05));
+      : THREE.MathUtils.damp(camera.position.z, targetZ, 14, Math.min(dt, 0.05));
     const px = isMobile ? 8 : 3;
     const py = isMobile ? 8 : 2;
     const k = reduced ? 0 : 0.02;

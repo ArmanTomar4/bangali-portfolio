@@ -15,7 +15,7 @@ story via a tooltip.
 |---|---|
 | Framework | Next.js 16 (App Router) |
 | 3D | Three.js via `@react-three/fiber` + `@react-three/drei` |
-| Scroll | Lenis (smooth inertia) + GSAP ScrollTrigger (scrub + snap) |
+| Navigation | GSAP Observer — discrete section paging (wheel / touch / keys) |
 | Animation | GSAP (constellations, camera, streaks) + Framer Motion (text, tooltip, UI) |
 | Styling | Tailwind CSS v4 + inline styles |
 | Fonts | Space Grotesk + Space Mono via `next/font/google` |
@@ -33,7 +33,7 @@ src/
 ├── components/
 │   ├── UniverseCanvas.tsx    R3F Canvas: nebula, starfield, streaks, camera rig
 │   ├── ConstellationSystem.tsx  Nodes, fat-line edges, hover, transitions
-│   ├── ScrollEngine.tsx      Lenis + ScrollTrigger scrub/snap wiring
+│   ├── ScrollEngine.tsx      GSAP Observer paging + input lock
 │   ├── SectionText.tsx       Per-section text reveals (Framer Motion)
 │   ├── StarTooltip.tsx       Hover tooltip / mobile bottom sheet
 │   ├── ProgressDots.tsx      Section indicator dots
@@ -50,11 +50,13 @@ public/
 
 ## How it works
 
-**Scroll → camera.** The page is a 600vh scroll container. Lenis smooths the
-wheel, GSAP ScrollTrigger scrubs progress 0→1 and snaps to the five section
-stops (`power3.inOut`, the "gravity well" arrival feel). Camera Z is damped
-toward `progress × −720`; mouse (desktop) or device orientation (mobile)
-adds parallax on X/Y.
+**Gesture → camera.** There is no real scrolling: the page is a fixed
+viewport and GSAP Observer captures wheel flicks, touch swipes, and arrow /
+page keys. Each gesture advances exactly one section — a single committed
+camera flight (`power2.inOut`, ~1.25s) — and further input is ignored until
+the destination's arrival animation has played out, so fast scrolling can
+never skip sections. Camera Z is damped toward `progress × −720`; mouse
+(desktop) or device orientation (mobile) adds parallax on X/Y.
 
 **Transitions are velocity-aware, not timer-based.** A GSAP ticker watches
 scroll progress every frame:
@@ -79,9 +81,10 @@ a Framer Motion tooltip (viewport-clamped, edge-flipping) shows the star's
 label, name, description, and tags. On mobile it's a tap + bottom sheet.
 
 **Edge cases.** No WebGL → static nebula + CSS starfield + normal scroll
-sections. `prefers-reduced-motion` → instant section swaps, no streaks or
-parallax. Mobile (<768px) → swipe-to-navigate, 2 fewest-important nodes
-dropped per constellation, constellation top / text bottom layout.
+sections. `prefers-reduced-motion` → instant section swaps, no streaks,
+parallax, or input lock. Mobile (<768px) → swipe paging via the same
+Observer, 2 fewest-important nodes dropped per constellation, constellation
+top / text bottom layout.
 
 ---
 
