@@ -23,6 +23,9 @@ import {
 const FOV = 75;
 const NODE_DIST = 100; // constellation plane sits 100 units beyond the section camera stop
 
+const NODE_OPACITY = 0.95;
+const GLOW_BASE = 0.32;
+const GLOW_HOVER = 0.7;
 const EDGE_BASE_OPACITY = 0.5;
 
 let glowTexture: THREE.Texture | null = null;
@@ -43,7 +46,6 @@ function getGlowTexture(): THREE.Texture {
 }
 
 interface GroupApi {
-  prep: () => void;
   arrive: (tl: gsap.core.Timeline, at: number) => void;
   depart: (tl: gsap.core.Timeline, at: number) => void;
   showInstant: () => void;
@@ -76,6 +78,13 @@ function adaptForMobile(c: Constellation, isMobile: boolean) {
   return { nodes, edges };
 }
 
+/**
+ * A constellation's stars are ALWAYS present in space — approaching them,
+ * perspective grows them naturally from distant points, which is what makes
+ * travel feel real. Only the *pattern* is ephemeral: on arrival each star
+ * flares gently (staggered) and the edges trace themselves in; on departure
+ * the edges dissolve and the stars simply recede behind the camera.
+ */
 const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
   function ConstellationGroup({ sectionIndex, isMobile, onHover }, apiRef) {
     const section = SECTIONS[sectionIndex];
@@ -83,7 +92,6 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
     const palette = section.palette;
     const { size, camera, gl } = useThree();
 
-    const rootRef = useRef<THREE.Group>(null);
     const nodeGroups = useRef<(THREE.Group | null)[]>([]);
     const nodeMats = useRef<(THREE.MeshBasicMaterial | null)[]>([]);
     const glowMats = useRef<(THREE.SpriteMaterial | null)[]>([]);
@@ -120,6 +128,10 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
     const baseColor = useMemo(() => new THREE.Color(palette.nodeColor), [palette.nodeColor]);
     const hoverColor = useMemo(
       () => baseColor.clone().lerp(new THREE.Color("#ffffff"), 0.65),
+      [baseColor]
+    );
+    const flareColor = useMemo(
+      () => baseColor.clone().lerp(new THREE.Color("#ffffff"), 0.45),
       [baseColor]
     );
 
@@ -164,112 +176,73 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
 
     const edgeMat = (j: number) => lines[j].material as LineMaterial;
 
-    const setAll = (visible: boolean, scale: number, opacity: number) => {
-      if (rootRef.current) rootRef.current.visible = visible;
-      nodeGroups.current.forEach((g) => g?.scale.setScalar(scale));
-      nodeMats.current.forEach((m) => m && (m.opacity = opacity));
-      glowMats.current.forEach((m) => m && (m.opacity = opacity * 0.35));
-      lines.forEach((l) => {
-        const m = l.material as LineMaterial;
-        m.dashOffset = visible ? 0 : (l.userData.len as number);
-        m.opacity = visible ? EDGE_BASE_OPACITY : 0;
-      });
-    };
-
     useImperativeHandle(
       apiRef,
       (): GroupApi => ({
-        prep() {
-          shownRef.current = true;
-          if (rootRef.current) rootRef.current.visible = true;
-          nodeGroups.current.forEach((g) => g?.scale.setScalar(0));
-          nodeMats.current.forEach((m) => m && (m.opacity = 0));
-          glowMats.current.forEach((m) => m && (m.opacity = 0));
-          lines.forEach((l) => {
-            const m = l.material as LineMaterial;
-            m.dashOffset = l.userData.len as number;
-            m.opacity = EDGE_BASE_OPACITY;
-          });
-        },
         arrive(tl, at) {
-          const groups = nodeGroups.current.filter(Boolean) as THREE.Group[];
-          tl.to(
-            groups.map((g) => g.scale),
-            {
-              x: 1, y: 1, z: 1,
-              duration: 0.9,
-              ease: "elastic.out(1, 0.5)",
-              stagger: 0.08,
-              overwrite: "auto",
-            },
-            at
-          );
-          tl.to(
-            nodeMats.current.filter(Boolean),
-            { opacity: 1, duration: 0.3, stagger: 0.08, overwrite: "auto" },
-            at
-          );
-          tl.to(
-            glowMats.current.filter(Boolean),
-            { opacity: 0.35, duration: 0.3, stagger: 0.08, overwrite: "auto" },
-            at
-          );
+          shownRef.current = true;
+          // each star flares gently in sequence — a focus pull, not a pop-in
+          nodeGroups.current.forEach((g, k) => {
+            if (!g) return;
+            const t = at + k * 0.06;
+            tl.to(g.scale, { x: 1.18, y: 1.18, z: 1.18, duration: 0.3, ease: "sine.out", overwrite: "auto" }, t);
+            tl.to(g.scale, { x: 1, y: 1, z: 1, duration: 0.55, ease: "sine.inOut", overwrite: "auto" }, t + 0.3);
+            const mat = nodeMats.current[k];
+            if (mat) {
+              tl.to(mat.color, { r: flareColor.r, g: flareColor.g, b: flareColor.b, duration: 0.25, overwrite: "auto" }, t);
+              tl.to(mat.color, { r: baseColor.r, g: baseColor.g, b: baseColor.b, duration: 0.6, overwrite: "auto" }, t + 0.3);
+            }
+            const glow = glowMats.current[k];
+            if (glow) {
+              tl.to(glow, { opacity: 0.62, duration: 0.28, overwrite: "auto" }, t);
+              tl.to(glow, { opacity: GLOW_BASE, duration: 0.6, overwrite: "auto" }, t + 0.32);
+            }
+          });
+          // then the pattern traces itself between the settled stars
           lines.forEach((l, j) => {
+            tl.set(edgeMat(j), { opacity: EDGE_BASE_OPACITY }, at + 0.45);
             tl.fromTo(
               edgeMat(j),
               { dashOffset: l.userData.len as number },
-              {
-                dashOffset: 0,
-                duration: 0.4,
-                ease: "power2.out",
-                overwrite: "auto",
-              },
-              at + 0.4 + j * 0.06
+              { dashOffset: 0, duration: 0.35, ease: "power2.out", overwrite: "auto" },
+              at + 0.5 + j * 0.07
             );
           });
         },
         depart(tl, at) {
-          hoverIdx.current = -1;
           shownRef.current = false;
-          const groups = nodeGroups.current.filter(Boolean) as THREE.Group[];
-          tl.to(
-            groups.map((g) => g.scale),
-            {
-              x: 0, y: 0, z: 0,
-              duration: 0.45,
-              ease: "power2.in",
-              stagger: 0.04,
-              overwrite: "auto",
-            },
-            at
-          );
-          tl.to(
-            [...nodeMats.current, ...glowMats.current].filter(Boolean),
-            { opacity: 0, duration: 0.4, overwrite: "auto" },
-            at
-          );
+          hoverIdx.current = -1;
+          // the pattern dissolves; the stars themselves stay and recede
           lines.forEach((_, j) => {
-            tl.to(
-              edgeMat(j),
-              { opacity: 0, duration: 0.4, overwrite: "auto" },
-              at
-            );
+            tl.to(edgeMat(j), { opacity: 0, duration: 0.35, overwrite: "auto" }, at);
           });
-          tl.call(
-            () => {
-              if (rootRef.current) rootRef.current.visible = false;
-            },
-            [],
-            at + 0.75
-          );
+          nodeGroups.current.forEach((g) => {
+            if (g) tl.to(g.scale, { x: 1, y: 1, z: 1, duration: 0.3, overwrite: "auto" }, at);
+          });
+          nodeMats.current.forEach((m) => {
+            if (!m) return;
+            tl.to(m, { opacity: NODE_OPACITY, duration: 0.3, overwrite: "auto" }, at);
+            tl.to(m.color, { r: baseColor.r, g: baseColor.g, b: baseColor.b, duration: 0.3, overwrite: "auto" }, at);
+          });
+          glowMats.current.forEach((m) => {
+            if (m) tl.to(m, { opacity: GLOW_BASE, duration: 0.35, overwrite: "auto" }, at);
+          });
         },
         showInstant() {
           shownRef.current = true;
-          setAll(true, 1, 1);
+          lines.forEach((l) => {
+            const m = l.material as LineMaterial;
+            m.dashOffset = 0;
+            m.opacity = EDGE_BASE_OPACITY;
+          });
         },
         hideInstant() {
           shownRef.current = false;
-          setAll(false, 0, 0);
+          lines.forEach((l) => {
+            const m = l.material as LineMaterial;
+            m.dashOffset = l.userData.len as number;
+            m.opacity = 0;
+          });
         },
       }),
       [lines] // eslint-disable-line react-hooks/exhaustive-deps
@@ -300,7 +273,7 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
       if (mat)
         gsap.to(mat.color, { r: hoverColor.r, g: hoverColor.g, b: hoverColor.b, duration: 0.3, overwrite: "auto" });
       const glow = glowMats.current[i];
-      if (glow) gsap.to(glow, { opacity: 0.7, duration: 0.3, overwrite: "auto" });
+      if (glow) gsap.to(glow, { opacity: GLOW_HOVER, duration: 0.3, overwrite: "auto" });
       const conn = connectedEdges(i);
       lines.forEach((_, j) => {
         gsap.to(edgeMat(j), {
@@ -330,8 +303,8 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
       nodes.forEach((_, k) => {
         const m = nodeMats.current[k];
         const gm = glowMats.current[k];
-        if (m) gsap.to(m, { opacity: 1, duration: 0.2, overwrite: "auto" });
-        if (gm) gsap.to(gm, { opacity: 0.35, duration: 0.2, overwrite: "auto" });
+        if (m) gsap.to(m, { opacity: NODE_OPACITY, duration: 0.2, overwrite: "auto" });
+        if (gm) gsap.to(gm, { opacity: GLOW_BASE, duration: 0.2, overwrite: "auto" });
       });
     };
 
@@ -354,25 +327,13 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
     };
 
     return (
-      <group
-        ref={(el) => {
-          rootRef.current = el;
-          if (el && !el.userData.init) {
-            el.visible = false;
-            el.userData.init = true;
-          }
-        }}
-      >
+      <group>
         {nodes.map((node, i) => (
           <group
             key={node.id}
             position={positions[i]}
             ref={(el) => {
               nodeGroups.current[i] = el;
-              if (el && !el.userData.init) {
-                el.scale.setScalar(0);
-                el.userData.init = true;
-              }
             }}
           >
             <mesh>
@@ -383,7 +344,7 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
                 }}
                 color={palette.nodeColor}
                 transparent
-                opacity={0}
+                opacity={NODE_OPACITY}
               />
             </mesh>
             <sprite scale={[node.r * 8, node.r * 8, 1]}>
@@ -394,7 +355,7 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
                 }}
                 color={palette.nodeColor}
                 transparent
-                opacity={0}
+                opacity={GLOW_BASE}
                 blending={THREE.AdditiveBlending}
                 depthWrite={false}
               />
@@ -437,11 +398,10 @@ interface SystemProps {
 }
 
 /**
- * Transition orchestration is driven by the *actual* camera progress, not a
- * fixed timer: the old constellation departs as soon as the camera pulls away
- * from its section stop, and the new one materialises only once the camera is
- * close to its stop AND has decelerated — so arrival always lands on a settled
- * camera, in either scroll direction, even across multi-section jumps.
+ * Transition orchestration is driven by the *actual* camera progress: the
+ * pattern dissolves as soon as the camera pulls away from a section stop,
+ * and the next pattern traces in only once the camera is close to its stop
+ * AND has decelerated — in either direction, even across multi-section jumps.
  */
 export default function ConstellationSystem({
   section,
@@ -479,7 +439,7 @@ export default function ConstellationSystem({
       vel += ((p - prevP) / dt - vel) * Math.min(1, dt * 12);
       prevP = p;
 
-      // Phase 1 — departure: camera has left the displayed section's stop
+      // departure: camera has left the displayed section's stop
       const d = displayed.current;
       if (d != null && Math.abs(p - d / 4) > 0.05) {
         displayed.current = null;
@@ -492,7 +452,7 @@ export default function ConstellationSystem({
         apis.current[d]?.depart(tl, 0);
       }
 
-      // Phase 3 — arrival: camera near the current section's stop and slowing
+      // arrival: camera near the current section's stop and slowing
       const s = sectionRef.current;
       if (
         displayed.current == null &&
@@ -504,10 +464,9 @@ export default function ConstellationSystem({
         arriveTl.current?.kill();
         const api = apis.current[s];
         if (api) {
-          api.prep();
           const tl = gsap.timeline();
           arriveTl.current = tl;
-          api.arrive(tl, 0.12);
+          api.arrive(tl, 0.1);
         }
       }
     };
