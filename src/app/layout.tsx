@@ -17,7 +17,7 @@ const spaceMono = Space_Mono({
 export const metadata: Metadata = {
   title: "Aranya Chatterjee — AI / ML Engineer",
   description:
-    "An interactive neural-network portfolio for Aranya Chatterjee, AI/ML engineer.",
+    "A constellation universe portfolio for Aranya Chatterjee — AI/ML engineer and researcher. Scroll through the stars.",
 };
 
 export default function RootLayout({
@@ -28,11 +28,9 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${spaceGrotesk.variable} ${spaceMono.variable} h-full antialiased`}
+      className={`${spaceGrotesk.variable} ${spaceMono.variable} antialiased`}
     >
-      <body className="min-h-full bg-[#04040d] text-white overflow-hidden">
-        {children}
-      </body>
+      <body className="bg-[#03030a] text-white">{children}</body>
     </html>
   );
 }

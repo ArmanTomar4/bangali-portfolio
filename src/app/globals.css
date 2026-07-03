@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #04040d;
+  --bg: #03030a;
   --ink: #e8e6ff;
   --purple: #7f77dd;
   --teal: #1d9e75;
@@ -17,7 +17,6 @@
 
 html,
 body {
-  height: 100%;
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-space-grotesk), system-ui, sans-serif;
@@ -25,21 +24,41 @@ body {
   overscroll-behavior: none;
 }
 
-/* prevent text selection on the canvas world by default */
+body {
+  overflow-x: hidden;
+}
+
 canvas {
   display: block;
   touch-action: none;
+  user-select: none;
 }
 
-/* the slide panel uses will-change for jank-free animation */
-.panel-will-change {
-  will-change: transform, opacity;
+/* top-right nav link hover */
+.nav-link:hover {
+  color: rgba(175, 169, 236, 0.6) !important;
 }
 
-/* hide scrollbars inside the panel body */
-.panel-scroll::-webkit-scrollbar {
-  width: 0;
-  background: transparent;
+/* bottom-right social icons */
+.social-link {
+  color: rgba(255, 255, 255, 0.18);
+  transition: color 0.3s, transform 0.3s;
+  display: inline-flex;
+}
+
+.social-link:hover {
+  color: rgba(127, 119, 221, 0.75);
+  transform: scale(1.1);
+}
+
+/* scroll hint chevron */
+.hint-chevron {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-right: 2px solid rgba(255, 255, 255, 0.22);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.22);
+  transform: rotate(45deg);
 }
 
 @keyframes hint-bounce {
@@ -48,10 +67,31 @@ canvas {
     transform: translateY(0);
   }
   50% {
-    transform: translateY(-4px);
+    transform: translateY(5px);
   }
 }
 
 .hint-bounce {
-  animation: hint-bounce 1.6s ease-in-out infinite;
+  display: block;
+  animation: hint-bounce 2.2s ease-in-out infinite;
+}
+
+/* CSS starfield twinkle for the no-WebGL fallback */
+@keyframes star-twinkle {
+  0%,
+  100% {
+    opacity: 0.75;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hint-bounce {
+    animation: none;
+  }
+  html {
+    scroll-behavior: auto;
+  }
 }
