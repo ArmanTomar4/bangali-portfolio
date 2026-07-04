@@ -96,23 +96,11 @@ function getStarTexture(): THREE.Texture {
   return starTexture;
 }
 
-/**
- * 300 foreground stars in 3 size classes + hyperspace streak lines.
- * Streak intensity is derived from the camera's actual Z velocity, so the
- * effect tracks the real travel (any direction, any duration) instead of
- * running on a fixed timer.
- */
+/** 300 foreground stars in 3 size classes for near-field parallax. */
 function ForegroundStars() {
   const { camera } = useThree();
   const groupRef = useRef<THREE.Group>(null);
-  const linesRef = useRef<THREE.LineSegments>(null);
-  const lineMatRef = useRef<THREE.LineBasicMaterial>(null);
   const rotY = useRef(0);
-  const prevStreak = useRef(0);
-  const prevZ = useRef<number | null>(null);
-  const streak = useRef(0);
-  const dirSign = useRef(-1);
-  const tintedSign = useRef(0);
 
   const data = useMemo(() => {
     const rand = mulberry32(1337);
@@ -121,10 +109,6 @@ function ForegroundStars() {
       { size: 1.6, pts: [], cols: [] },
       { size: 2.8, pts: [], cols: [] },
     ];
-    const all: number[] = [];
-    const headCols: number[] = [];
-    const radial: number[] = [];
-    const jitter: number[] = [];
     const white = new THREE.Color("#ffffff");
     const blue = new THREE.Color("#cce8ff");
     const warm = new THREE.Color("#ffd4a0");
@@ -140,30 +124,8 @@ function ForegroundStars() {
       const cls = sr < 0.8 ? 0 : sr < 0.95 ? 1 : 2;
       classes[cls].pts.push(x, y, z);
       classes[cls].cols.push(col.r, col.g, col.b);
-      all.push(x, y, z);
-      headCols.push(col.r, col.g, col.b);
-      // apparent motion scales with lateral offset from the flight axis:
-      // stars near the vanishing point barely streak, ones rushing past do
-      radial.push(Math.min(1, Math.sqrt(x * x + y * y) / 80));
-      jitter.push(0.55 + rand() * 0.9);
     }
-    const linePos = new Float32Array(300 * 6);
-    // trail colours: bright head fading to black — with additive blending
-    // black contributes nothing, so each trail tapers off like a comet
-    const lineCols = new Float32Array(300 * 6);
-    for (let i = 0; i < 300; i++) {
-      linePos[i * 6] = all[i * 3];
-      linePos[i * 6 + 1] = all[i * 3 + 1];
-      linePos[i * 6 + 2] = all[i * 3 + 2];
-      linePos[i * 6 + 3] = all[i * 3];
-      linePos[i * 6 + 4] = all[i * 3 + 1];
-      linePos[i * 6 + 5] = all[i * 3 + 2];
-      lineCols[i * 6] = headCols[i * 3];
-      lineCols[i * 6 + 1] = headCols[i * 3 + 1];
-      lineCols[i * 6 + 2] = headCols[i * 3 + 2];
-      // tail stays 0,0,0
-    }
-    return { classes, all, linePos, lineCols, headCols, radial, jitter };
+    return { classes };
   }, []);
 
   const dpr = typeof window !== "undefined" ? Math.min(window.devicePixelRatio, 2) : 1;
@@ -175,54 +137,6 @@ function ForegroundStars() {
     rotY.current += dt * 0.048; // ≈ 0.0008 rad/frame @60fps
     g.rotation.y = rotY.current;
     g.position.z = camera.position.z * 0.95;
-
-    // camera Z velocity → streak intensity (full streak ≈ one-section snap speed)
-    const z = camera.position.z;
-    const dz = prevZ.current == null ? 0 : z - prevZ.current;
-    prevZ.current = z;
-    if (Math.abs(dz) > 1e-3) dirSign.current = dz < 0 ? -1 : 1;
-    const target = Math.min(1, Math.abs(dz) / dt / 300);
-    streak.current += (target - streak.current) * Math.min(1, dt * 9);
-    const s = streak.current;
-
-    const lines = linesRef.current;
-    if (!lines) return;
-    if (s > 0.004 || prevStreak.current > 0.004) {
-      // streak tail points toward where the star came from, expressed in the
-      // group's rotated local space
-      const ry = rotY.current;
-      const dx = -Math.sin(ry) * dirSign.current;
-      const dz2 = Math.cos(ry) * dirSign.current;
-      const base = s * 30;
-      const attr = lines.geometry.getAttribute("position") as THREE.BufferAttribute;
-      const arr = attr.array as Float32Array;
-      for (let i = 0; i < 300; i++) {
-        const L =
-          base * (0.2 + 0.8 * Math.pow(data.radial[i], 1.3)) * data.jitter[i];
-        arr[i * 6 + 3] = data.all[i * 3] + dx * L;
-        arr[i * 6 + 5] = data.all[i * 3 + 2] + dz2 * L;
-      }
-      attr.needsUpdate = true;
-
-      // subtle doppler: trail heads shift blue flying forward, warm backward
-      if (tintedSign.current !== dirSign.current) {
-        tintedSign.current = dirSign.current;
-        const [tr, tg, tb] =
-          dirSign.current < 0 ? [0.78, 0.92, 1.25] : [1.25, 0.95, 0.78];
-        const cattr = lines.geometry.getAttribute("color") as THREE.BufferAttribute;
-        const carr = cattr.array as Float32Array;
-        for (let i = 0; i < 300; i++) {
-          carr[i * 6] = data.headCols[i * 3] * tr;
-          carr[i * 6 + 1] = data.headCols[i * 3 + 1] * tg;
-          carr[i * 6 + 2] = data.headCols[i * 3 + 2] * tb;
-        }
-        cattr.needsUpdate = true;
-      }
-
-      lines.visible = s > 0.004;
-      if (lineMatRef.current) lineMatRef.current.opacity = Math.min(1, s) * 0.62;
-      prevStreak.current = s;
-    }
   });
 
   return (
@@ -256,20 +170,6 @@ function ForegroundStars() {
           />
         </points>
       ))}
-      <lineSegments ref={linesRef} visible={false} frustumCulled={false}>
-        <bufferGeometry>
-          <bufferAttribute attach="attributes-position" args={[data.linePos, 3]} />
-          <bufferAttribute attach="attributes-color" args={[data.lineCols, 3]} />
-        </bufferGeometry>
-        <lineBasicMaterial
-          ref={lineMatRef}
-          vertexColors
-          transparent
-          opacity={0}
-          blending={THREE.AdditiveBlending}
-          depthWrite={false}
-        />
-      </lineSegments>
     </group>
   );
 }

@@ -12,6 +12,10 @@ export interface StarNode {
 }
 
 export interface Constellation {
+  /** star-atlas identity, e.g. "Origo" */
+  name: string;
+  /** English reading of the name, e.g. "the origin" */
+  meaning: string;
   cx: number;
   cy: number;
   nodes: StarNode[];
@@ -63,6 +67,8 @@ export const SECTIONS: Section[] = [
       textAccent: "#85B7EB",
     },
     constellation: {
+      name: "Origo",
+      meaning: "the origin",
       cx: 0.22,
       cy: 0.48,
       nodes: [
@@ -137,6 +143,8 @@ export const SECTIONS: Section[] = [
       textAccent: "#5DCAA5",
     },
     constellation: {
+      name: "Fabrica",
+      meaning: "the forge",
       cx: 0.78,
       cy: 0.46,
       nodes: [
@@ -218,6 +226,8 @@ export const SECTIONS: Section[] = [
       textAccent: "#C4B5FD",
     },
     constellation: {
+      name: "Machina",
+      meaning: "the machine",
       cx: 0.22,
       cy: 0.5,
       nodes: [
@@ -306,6 +316,8 @@ export const SECTIONS: Section[] = [
       textAccent: "#ED93B1",
     },
     constellation: {
+      name: "Nexus",
+      meaning: "the meeting point",
       cx: 0.5,
       cy: 0.38,
       nodes: [

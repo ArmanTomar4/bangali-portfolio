@@ -10,6 +10,7 @@ import dynamic from "next/dynamic";
 import { gsap } from "gsap";
 import ScrollEngine from "@/components/ScrollEngine";
 import SectionText from "@/components/SectionText";
+import ConstellationLabel from "@/components/ConstellationLabel";
 import StarTooltip from "@/components/StarTooltip";
 import ProgressDots from "@/components/ProgressDots";
 import UIOverlay from "@/components/UIOverlay";
@@ -171,6 +172,11 @@ function Experience() {
         }}
       >
         <SectionText section={section} isMobile={isMobile} reduced={reduced} />
+        <ConstellationLabel
+          section={section}
+          isMobile={isMobile}
+          reduced={reduced}
+        />
         <StarTooltip hover={hover} isMobile={isMobile} />
       </div>
       <ProgressDots section={section} goTo={goTo} isMobile={isMobile} />

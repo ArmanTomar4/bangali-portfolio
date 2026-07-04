@@ -132,6 +132,11 @@ export default function FallbackUniverse() {
               }}
             >
               {s.text!.label}
+              {s.constellation && (
+                <span style={{ color: "rgba(255,255,255,0.3)" }}>
+                  &nbsp;·&nbsp;{s.constellation.name}, “{s.constellation.meaning}”
+                </span>
+              )}
             </div>
             <h2
               style={{
