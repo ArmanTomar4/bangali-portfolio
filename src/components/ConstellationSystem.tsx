@@ -50,6 +50,8 @@ interface GroupApi {
   depart: (tl: gsap.core.Timeline, at: number) => void;
   showInstant: () => void;
   hideInstant: () => void;
+  /** whether this constellation exists in the sky at all right now */
+  setPresence: (present: boolean, instant: boolean) => void;
 }
 
 interface GroupProps {
@@ -79,11 +81,13 @@ function adaptForMobile(c: Constellation, isMobile: boolean) {
 }
 
 /**
- * A constellation's stars are ALWAYS present in space — approaching them,
- * perspective grows them naturally from distant points, which is what makes
- * travel feel real. Only the *pattern* is ephemeral: on arrival each star
- * flares gently (staggered) and the edges trace themselves in; on departure
- * the edges dissolve and the stars simply recede behind the camera.
+ * A constellation's stars live at fixed positions in space — approaching
+ * them, perspective grows them naturally from distant points, which is what
+ * makes travel feel real. Only the current section's stars and the NEXT
+ * section's (the approach target) are present in the sky at once; presence
+ * fades via setPresence. The pattern itself is ephemeral: on arrival each
+ * star flares gently (staggered) and the edges trace themselves in; on
+ * departure the edges dissolve.
  */
 const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
   function ConstellationGroup({ sectionIndex, isMobile, onHover }, apiRef) {
@@ -92,10 +96,13 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
     const palette = section.palette;
     const { size, camera, gl } = useThree();
 
+    const rootRef = useRef<THREE.Group>(null);
     const nodeGroups = useRef<(THREE.Group | null)[]>([]);
     const nodeMats = useRef<(THREE.MeshBasicMaterial | null)[]>([]);
     const glowMats = useRef<(THREE.SpriteMaterial | null)[]>([]);
     const shownRef = useRef(false);
+    const presentRef = useRef(false);
+    const hideCall = useRef<gsap.core.Tween | null>(null);
     const hoverIdx = useRef(-1);
 
     const { nodes, edges } = useMemo(
@@ -246,6 +253,40 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
             m.opacity = 0;
           });
         },
+        setPresence(present, instant) {
+          if (presentRef.current === present) return;
+          presentRef.current = present;
+          hideCall.current?.kill();
+          hideCall.current = null;
+          const root = rootRef.current;
+          if (!root) return;
+          const mats = nodeMats.current.filter(Boolean) as THREE.MeshBasicMaterial[];
+          const glows = glowMats.current.filter(Boolean) as THREE.SpriteMaterial[];
+          if (present) {
+            root.visible = true;
+            if (instant) {
+              mats.forEach((m) => (m.opacity = NODE_OPACITY));
+              glows.forEach((m) => (m.opacity = GLOW_BASE));
+            } else {
+              gsap.to(mats, { opacity: NODE_OPACITY, duration: 0.6, overwrite: "auto" });
+              gsap.to(glows, { opacity: GLOW_BASE, duration: 0.6, overwrite: "auto" });
+            }
+          } else if (instant) {
+            mats.forEach((m) => (m.opacity = 0));
+            glows.forEach((m) => (m.opacity = 0));
+            lines.forEach((l) => ((l.material as LineMaterial).opacity = 0));
+            root.visible = false;
+          } else {
+            gsap.to(mats, { opacity: 0, duration: 0.35, overwrite: "auto" });
+            gsap.to(glows, { opacity: 0, duration: 0.35, overwrite: "auto" });
+            lines.forEach((l) => {
+              gsap.to(l.material as LineMaterial, { opacity: 0, duration: 0.3, overwrite: "auto" });
+            });
+            hideCall.current = gsap.delayedCall(0.4, () => {
+              if (!presentRef.current && root) root.visible = false;
+            });
+          }
+        },
       }),
       [lines] // eslint-disable-line react-hooks/exhaustive-deps
     );
@@ -329,7 +370,15 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
     };
 
     return (
-      <group>
+      <group
+        ref={(el) => {
+          rootRef.current = el;
+          if (el && !el.userData.init) {
+            el.visible = false; // presence is applied by the orchestrator
+            el.userData.init = true;
+          }
+        }}
+      >
         {nodes.map((node, i) => (
           <group
             key={node.id}
@@ -418,6 +467,18 @@ export default function ConstellationSystem({
   sectionRef.current = section;
   const departTl = useRef<gsap.core.Timeline | null>(null);
   const arriveTl = useRef<gsap.core.Timeline | null>(null);
+
+  // only the current section's constellation and the next one (the approach
+  // target ahead) exist in the sky; everything further stays hidden
+  const firstPresence = useRef(true);
+  useEffect(() => {
+    const instant = reduced || firstPresence.current;
+    firstPresence.current = false;
+    SECTIONS.forEach((s, i) => {
+      if (!s.constellation) return;
+      apis.current[i]?.setPresence(i === section || i === section + 1, instant);
+    });
+  }, [section, reduced]);
 
   // reduced motion: hard swap on section change, no ticker
   useEffect(() => {
