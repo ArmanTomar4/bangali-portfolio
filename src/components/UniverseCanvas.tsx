@@ -54,8 +54,9 @@ function NebulaBg() {
 
   // sized to cover the frustum at 800 units, with overscan for parallax drift
   const scale = useMemo(() => {
+    const aspect = size.height > 0 ? size.width / size.height : 16 / 9;
     const h = 2 * Math.tan((37.5 * Math.PI) / 180) * 800;
-    const w = h * (size.width / size.height);
+    const w = h * aspect;
     const planeAspect = 32 / 18;
     const sh = Math.max(h, w / planeAspect) * 1.18;
     return [(sh * planeAspect) / 32, sh / 18, 1] as [number, number, number];
@@ -111,6 +112,7 @@ function ForegroundStars() {
   const prevZ = useRef<number | null>(null);
   const streak = useRef(0);
   const dirSign = useRef(-1);
+  const tintedSign = useRef(0);
 
   const data = useMemo(() => {
     const rand = mulberry32(1337);
@@ -120,7 +122,9 @@ function ForegroundStars() {
       { size: 2.8, pts: [], cols: [] },
     ];
     const all: number[] = [];
-    const allCols: number[] = [];
+    const headCols: number[] = [];
+    const radial: number[] = [];
+    const jitter: number[] = [];
     const white = new THREE.Color("#ffffff");
     const blue = new THREE.Color("#cce8ff");
     const warm = new THREE.Color("#ffd4a0");
@@ -137,9 +141,16 @@ function ForegroundStars() {
       classes[cls].pts.push(x, y, z);
       classes[cls].cols.push(col.r, col.g, col.b);
       all.push(x, y, z);
-      allCols.push(col.r, col.g, col.b, col.r, col.g, col.b);
+      headCols.push(col.r, col.g, col.b);
+      // apparent motion scales with lateral offset from the flight axis:
+      // stars near the vanishing point barely streak, ones rushing past do
+      radial.push(Math.min(1, Math.sqrt(x * x + y * y) / 80));
+      jitter.push(0.55 + rand() * 0.9);
     }
     const linePos = new Float32Array(300 * 6);
+    // trail colours: bright head fading to black — with additive blending
+    // black contributes nothing, so each trail tapers off like a comet
+    const lineCols = new Float32Array(300 * 6);
     for (let i = 0; i < 300; i++) {
       linePos[i * 6] = all[i * 3];
       linePos[i * 6 + 1] = all[i * 3 + 1];
@@ -147,8 +158,12 @@ function ForegroundStars() {
       linePos[i * 6 + 3] = all[i * 3];
       linePos[i * 6 + 4] = all[i * 3 + 1];
       linePos[i * 6 + 5] = all[i * 3 + 2];
+      lineCols[i * 6] = headCols[i * 3];
+      lineCols[i * 6 + 1] = headCols[i * 3 + 1];
+      lineCols[i * 6 + 2] = headCols[i * 3 + 2];
+      // tail stays 0,0,0
     }
-    return { classes, all, linePos, lineCols: new Float32Array(allCols) };
+    return { classes, all, linePos, lineCols, headCols, radial, jitter };
   }, []);
 
   const dpr = typeof window !== "undefined" ? Math.min(window.devicePixelRatio, 2) : 1;
@@ -178,16 +193,34 @@ function ForegroundStars() {
       const ry = rotY.current;
       const dx = -Math.sin(ry) * dirSign.current;
       const dz2 = Math.cos(ry) * dirSign.current;
-      const len = s * 18;
+      const base = s * 30;
       const attr = lines.geometry.getAttribute("position") as THREE.BufferAttribute;
       const arr = attr.array as Float32Array;
       for (let i = 0; i < 300; i++) {
-        arr[i * 6 + 3] = data.all[i * 3] + dx * len;
-        arr[i * 6 + 5] = data.all[i * 3 + 2] + dz2 * len;
+        const L =
+          base * (0.2 + 0.8 * Math.pow(data.radial[i], 1.3)) * data.jitter[i];
+        arr[i * 6 + 3] = data.all[i * 3] + dx * L;
+        arr[i * 6 + 5] = data.all[i * 3 + 2] + dz2 * L;
       }
       attr.needsUpdate = true;
+
+      // subtle doppler: trail heads shift blue flying forward, warm backward
+      if (tintedSign.current !== dirSign.current) {
+        tintedSign.current = dirSign.current;
+        const [tr, tg, tb] =
+          dirSign.current < 0 ? [0.78, 0.92, 1.25] : [1.25, 0.95, 0.78];
+        const cattr = lines.geometry.getAttribute("color") as THREE.BufferAttribute;
+        const carr = cattr.array as Float32Array;
+        for (let i = 0; i < 300; i++) {
+          carr[i * 6] = data.headCols[i * 3] * tr;
+          carr[i * 6 + 1] = data.headCols[i * 3 + 1] * tg;
+          carr[i * 6 + 2] = data.headCols[i * 3 + 2] * tb;
+        }
+        cattr.needsUpdate = true;
+      }
+
       lines.visible = s > 0.004;
-      if (lineMatRef.current) lineMatRef.current.opacity = Math.min(1, s) * 0.7;
+      if (lineMatRef.current) lineMatRef.current.opacity = Math.min(1, s) * 0.62;
       prevStreak.current = s;
     }
   });

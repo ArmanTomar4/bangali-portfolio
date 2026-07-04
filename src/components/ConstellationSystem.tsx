@@ -107,9 +107,11 @@ const ConstellationGroup = forwardRef<GroupApi, GroupProps>(
     // On mobile the constellation is centred in the upper third (text moves
     // to the bottom) and the spread is compressed to fit narrow screens.
     const positions = useMemo(() => {
+      const sw = size.width > 0 ? size.width : 1280;
+      const sh = size.height > 0 ? size.height : 720;
       const vh = 2 * Math.tan(((FOV / 2) * Math.PI) / 180) * NODE_DIST;
-      const vw = vh * (size.width / size.height);
-      const offScale = (vw / size.width) * (isMobile ? 0.75 : 1);
+      const vw = vh * (sw / sh);
+      const offScale = (vw / sw) * (isMobile ? 0.75 : 1);
       const cx = isMobile ? 0.5 : constellation.cx;
       const cy = isMobile ? 0.3 : constellation.cy;
       const cxW = (cx - 0.5) * vw;
